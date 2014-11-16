@@ -9,6 +9,7 @@
 #include <strings.h>
 #include <string.h>
 #include <ucontext.h>
+#include <errno.h>
 #include "threadsalive.h"
 #include "list.h"
 
@@ -25,22 +26,28 @@ static ucontext_t *current_context;
 void ta_libinit(void) {
     //initialize ready_queue
     ready_queue = (list_t *) malloc(sizeof(list_t));
+    assert(ready_queue);
     list_init(ready_queue);
 
     //initialize main_context and current_context
     main_context = (ucontext_t *) malloc(sizeof(ucontext_t));
+    assert(main_context);
+
     current_context = main_context;
 }
  
 void ta_create(void (*func)(void *), void *arg) {
     //create a new ucontext
     ucontext_t *nctx = (ucontext_t *) malloc(sizeof(ucontext_t));
-    assert(nctx != NULL);   //check new context
+    assert(nctx);   //check new context
 
     unsigned char *stack = (unsigned char *) malloc(STACKSIZE);
-    assert(stack != NULL);  //check stack
+    assert(stack);  //check stack
 
-    getcontext(nctx);
+    if (getcontext(nctx) == -1){
+        fprintf(stderr, "getcontext failed: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
     (nctx->uc_stack).ss_sp = stack;
     (nctx->uc_stack).ss_size = STACKSIZE;
@@ -57,7 +64,10 @@ void ta_yield(void) {
         ucontext_t *to_run = list_remove(ready_queue);
         list_add(ready_queue, current_context);
         current_context = to_run;
-        swapcontext((ready_queue->tail)->ctx, to_run);
+        if (swapcontext((ready_queue->tail)->ctx, to_run) == -1){
+            fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
+            exit(EXIT_FAILURE);
+        }
     }
 
 
@@ -66,7 +76,10 @@ void ta_yield(void) {
 int ta_waitall(void) {
     while (list_size(ready_queue) > 0){
         current_context = list_remove(ready_queue);
-        swapcontext(main_context, current_context);
+        if (swapcontext(main_context, current_context) == -1){
+            fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
+            exit(EXIT_FAILURE);
+        }
 
         //thread has completed, free the allocated memory
         free((current_context->uc_stack).ss_sp);
