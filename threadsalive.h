@@ -1,5 +1,5 @@
 /*
- * 
+ * Name: Jiayang Li
  */
 
 #ifndef __THREADSALIVE_H__
@@ -8,6 +8,12 @@
 /* ***************************
         type definitions
    *************************** */
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include "list.h"
+
 
 typedef struct {
 
@@ -53,4 +59,4 @@ void ta_cond_destroy(tacond_t *);
 void ta_wait(talock_t *, tacond_t *);
 void ta_signal(tacond_t *);
 
-#endif /* __THREADSALIVE_H__ */
+#endif

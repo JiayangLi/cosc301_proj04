@@ -1,5 +1,5 @@
 /*
- * 
+ * Name: Jiayang Li
  */
 
 #include <stdio.h>
@@ -8,27 +8,73 @@
 #include <assert.h>
 #include <strings.h>
 #include <string.h>
-
+#include <ucontext.h>
 #include "threadsalive.h"
+#include "list.h"
+
+#define STACKSIZE 128000
+
+static list_t *ready_queue;
+static ucontext_t *main_context;
+static ucontext_t *current_context;
 
 /* ***************************** 
      stage 1 library functions
    ***************************** */
 
 void ta_libinit(void) {
-    return;
-}
+    //initialize ready_queue
+    ready_queue = (list_t *) malloc(sizeof(list_t));
+    list_init(ready_queue);
 
+    //initialize main_context and current_context
+    main_context = (ucontext_t *) malloc(sizeof(ucontext_t));
+    current_context = main_context;
+}
+ 
 void ta_create(void (*func)(void *), void *arg) {
-    return;
+    //create a new ucontext
+    ucontext_t *nctx = (ucontext_t *) malloc(sizeof(ucontext_t));
+    assert(nctx != NULL);   //check new context
+
+    unsigned char *stack = (unsigned char *) malloc(STACKSIZE);
+    assert(stack != NULL);  //check stack
+
+    getcontext(nctx);
+
+    (nctx->uc_stack).ss_sp = stack;
+    (nctx->uc_stack).ss_size = STACKSIZE;
+    nctx->uc_link = main_context; //link back to main
+
+    makecontext(nctx, (void (*)(void))func, 1, arg);
+    list_add(ready_queue, nctx);
 }
 
 void ta_yield(void) {
-    return;
+    //if there is no thread left, let this last thread run to completion
+    //printf("queue size: %d\n", list_size(ready_queue));
+    if (list_size(ready_queue) > 0){
+        ucontext_t *to_run = list_remove(ready_queue);
+        list_add(ready_queue, current_context);
+        current_context = to_run;
+        swapcontext((ready_queue->tail)->ctx, to_run);
+    }
+
+
 }
 
 int ta_waitall(void) {
-    return -1;
+    while (list_size(ready_queue) > 0){
+        current_context = list_remove(ready_queue);
+        swapcontext(main_context, current_context);
+
+        //thread has completed, free the allocated memory
+        free((current_context->uc_stack).ss_sp);
+        free(current_context);
+    }
+    free(ready_queue);
+    free(main_context);
+    return 0;
 }
 
 
