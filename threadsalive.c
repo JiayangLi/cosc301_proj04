@@ -125,12 +125,18 @@ void ta_sem_wait(tasem_t *sem) {
         if (list_size(ready_queue) <= 0){   //no more ready thread, switch back to main
             list_add(sem->blocked_queue, current_context);
             if_any_blocked = -1;    //no more running threads, but still blocked threads
-            swapcontext(current_context, main_context);
+            if (swapcontext(current_context, main_context) == -1){
+                fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
+                exit(EXIT_FAILURE);
+            }
         } else {    //switch to the next ready thread
             ucontext_t *to_run = list_remove(ready_queue);
             list_add(sem->blocked_queue, current_context);
             current_context = to_run;
-            swapcontext(((sem->blocked_queue)->tail)->ctx, to_run);
+            if (swapcontext(((sem->blocked_queue)->tail)->ctx, to_run) == -1){
+                fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
+                exit(EXIT_FAILURE);
+            }
         }
     }
 
@@ -176,12 +182,18 @@ void ta_wait(talock_t *mutex, tacond_t *cond) {
     if (list_size(ready_queue) <= 0){   //no more ready thread, switch back to main
         list_add(cond->blocked_queue, current_context);
         if_any_blocked = -1;    //no more running threads, but still blocked threads
-        swapcontext(current_context, main_context);
+        if (swapcontext(current_context, main_context) == -1){
+            fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
+            exit(EXIT_FAILURE);
+        }
     } else {    //switch to the next ready thread
         ucontext_t *to_run = list_remove(ready_queue);
         list_add(cond->blocked_queue, current_context);
         current_context = to_run;
-        swapcontext(((cond->blocked_queue)->tail)->ctx, to_run);
+        if (swapcontext(((cond->blocked_queue)->tail)->ctx, to_run) == -1){
+            fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
+            exit(EXIT_FAILURE);
+        }
         ta_lock(mutex);
     }
 }
