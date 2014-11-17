@@ -20,7 +20,7 @@ typedef struct {
 } talock_t;
 
 typedef struct {
-
+  list_t *blocked_queue;
 } tacond_t;
 
 

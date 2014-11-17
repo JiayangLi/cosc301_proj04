@@ -82,8 +82,10 @@ int ta_waitall(void) {
         }
 
         //thread has completed, free the allocated memory
-        free((current_context->uc_stack).ss_sp);
-        free(current_context);
+        if (if_any_blocked != -1){
+            free((current_context->uc_stack).ss_sp);
+            free(current_context);
+        }
     }
 
     list_clear(ready_queue);
@@ -99,6 +101,7 @@ int ta_waitall(void) {
 void ta_sem_init(tasem_t *sem, int value) {
     sem->value = value;
     sem->blocked_queue = (list_t *) malloc(sizeof(list_t));
+    list_init(sem->blocked_queue);
 }
 
 void ta_sem_destroy(tasem_t *sem) {
@@ -120,7 +123,7 @@ void ta_sem_wait(tasem_t *sem) {
 
     while (sem->value <= 0){
         if (list_size(ready_queue) <= 0){   //no more ready thread, switch back to main
-            //list_add(sem->blocked_queue, current_context);
+            list_add(sem->blocked_queue, current_context);
             if_any_blocked = -1;    //no more running threads, but still blocked threads
             swapcontext(current_context, main_context);
         } else {    //switch to the next ready thread
@@ -158,14 +161,36 @@ void ta_unlock(talock_t *mutex) {
    ***************************** */
 
 void ta_cond_init(tacond_t *cond) {
+    cond->blocked_queue = (list_t *) malloc(sizeof(list_t));
+    list_init(cond->blocked_queue);
 }
 
 void ta_cond_destroy(tacond_t *cond) {
+    list_clear(cond->blocked_queue);
 }
 
 void ta_wait(talock_t *mutex, tacond_t *cond) {
+    ta_unlock(mutex);
+
+    //put current_context to the blocked_queue associated with cond
+    if (list_size(ready_queue) <= 0){   //no more ready thread, switch back to main
+        list_add(cond->blocked_queue, current_context);
+        if_any_blocked = -1;    //no more running threads, but still blocked threads
+        swapcontext(current_context, main_context);
+    } else {    //switch to the next ready thread
+        ucontext_t *to_run = list_remove(ready_queue);
+        list_add(cond->blocked_queue, current_context);
+        current_context = to_run;
+        swapcontext(((cond->blocked_queue)->tail)->ctx, to_run);
+        ta_lock(mutex);
+    }
 }
 
 void ta_signal(tacond_t *cond) {
+    //put a blocked (if any) to the ready_queue
+    if (list_size(cond->blocked_queue) > 0){
+        ucontext_t *to_ready = list_remove(cond->blocked_queue);
+        list_add(ready_queue, to_ready);
+    }
 }
 
