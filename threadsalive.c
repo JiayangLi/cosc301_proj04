@@ -84,7 +84,9 @@ int ta_waitall(void) {
         // main_context gets here in two possible cases:
         // 1)current_context finishes
         // 2)current_context is the last ready thread and it blocks
-        // in both cases waitall is about to return and needs to free current_context
+        // in the first case, next ready thread runs
+        // in the second case, waitall is about to return
+        // in both cases, current_context needs to be freed
         free((current_context->uc_stack).ss_sp);
         free(current_context);
     }
