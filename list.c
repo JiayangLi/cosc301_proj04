@@ -63,8 +63,19 @@ ucontext_t *list_remove(list_t *queue){
 }
 
 int list_size(list_t *queue){
-	if (queue->head == NULL)
-		return -1;
 	return queue->size;
+}
+
+void list_clear(list_t *queue){
+	//remember to free everything in queue
+	//e.g. node, ucontext, stack
+	while (queue->head != NULL){
+		struct __list_node *to_free = queue->head;
+		queue->head = (queue->head)->next;
+		free(((to_free->ctx)->uc_stack).ss_sp);
+		free(to_free->ctx);
+		free(to_free);
+	}
+	free(queue);
 }
 

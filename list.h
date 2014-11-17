@@ -25,5 +25,6 @@ void list_init(list_t *);
 void list_add(list_t *, ucontext_t *);
 ucontext_t *list_remove(list_t *);
 int list_size(list_t *);
+void list_clear(list_t *);
 
 #endif
