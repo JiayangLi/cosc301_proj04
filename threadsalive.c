@@ -17,8 +17,8 @@
 
 static list_t *ready_queue;
 static ucontext_t *main_context;
-static ucontext_t *current_context;
-static int if_any_blocked = 0;  //indicates if there is any blocked threads
+static ucontext_t *current_context; //keeps track of the currently running thread
+static int num_blocked = 0;  //indicates the number of blocked threads
 
 /* ***************************** 
      stage 1 library functions
@@ -36,7 +36,7 @@ void ta_libinit(void) {
 
     current_context = main_context;
 
-    if_any_blocked = 0;
+    num_blocked = 0;
 }
  
 void ta_create(void (*func)(void *), void *arg) {
@@ -81,16 +81,17 @@ int ta_waitall(void) {
             exit(EXIT_FAILURE);
         }
 
-        //thread has completed, free the allocated memory
-        if (if_any_blocked != -1){
-            free((current_context->uc_stack).ss_sp);
-            free(current_context);
-        }
+        // main_context gets here in two possible cases:
+        // 1)current_context finishes
+        // 2)current_context is the last ready thread and it blocks
+        // in both cases waitall is about to return and needs to free current_context
+        free((current_context->uc_stack).ss_sp);
+        free(current_context);
     }
 
     list_clear(ready_queue);
     free(main_context);
-    return if_any_blocked;
+    return num_blocked == 0 ? 0 : -1;
 }
 
 
@@ -114,6 +115,7 @@ void ta_sem_post(tasem_t *sem) {
     //put a blocked thread (if any) to the ready queue
     if (list_size(sem->blocked_queue) > 0){
         ucontext_t *to_ready = list_remove(sem->blocked_queue);
+        num_blocked--;  //removed one blocked thread
         list_add(ready_queue, to_ready);
     }
 }
@@ -123,8 +125,8 @@ void ta_sem_wait(tasem_t *sem) {
 
     while (sem->value <= 0){
         if (list_size(ready_queue) <= 0){   //no more ready thread, switch back to main
-            list_add(sem->blocked_queue, current_context);
-            if_any_blocked = -1;    //no more running threads, but still blocked threads
+            //don't add to blocked_queue, let waitall() free this thread
+            num_blocked++;    //added one blocked thread
             if (swapcontext(current_context, main_context) == -1){
                 fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
                 exit(EXIT_FAILURE);
@@ -132,6 +134,7 @@ void ta_sem_wait(tasem_t *sem) {
         } else {    //switch to the next ready thread
             ucontext_t *to_run = list_remove(ready_queue);
             list_add(sem->blocked_queue, current_context);
+            num_blocked++;    //added one blocked thread
             current_context = to_run;
             if (swapcontext(((sem->blocked_queue)->tail)->ctx, to_run) == -1){
                 fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
@@ -180,8 +183,8 @@ void ta_wait(talock_t *mutex, tacond_t *cond) {
 
     //put current_context to the blocked_queue associated with cond
     if (list_size(ready_queue) <= 0){   //no more ready thread, switch back to main
-        list_add(cond->blocked_queue, current_context);
-        if_any_blocked = -1;    //no more running threads, but still blocked threads
+        //don't add to blocked_queue, let waitall() free this thread
+        num_blocked++;    //added one blocked thread
         if (swapcontext(current_context, main_context) == -1){
             fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
             exit(EXIT_FAILURE);
@@ -189,6 +192,7 @@ void ta_wait(talock_t *mutex, tacond_t *cond) {
     } else {    //switch to the next ready thread
         ucontext_t *to_run = list_remove(ready_queue);
         list_add(cond->blocked_queue, current_context);
+        num_blocked++;    //added one blocked thread
         current_context = to_run;
         if (swapcontext(((cond->blocked_queue)->tail)->ctx, to_run) == -1){
             fprintf(stderr, "swapcontext failed: %s\n", strerror(errno));
@@ -202,6 +206,7 @@ void ta_signal(tacond_t *cond) {
     //put a blocked (if any) to the ready_queue
     if (list_size(cond->blocked_queue) > 0){
         ucontext_t *to_ready = list_remove(cond->blocked_queue);
+        num_blocked--;  //removed one blocked thread
         list_add(ready_queue, to_ready);
     }
 }
