@@ -8,19 +8,15 @@
 /* ***************************
         type definitions
    *************************** */
-
-
-#include <stdio.h>
-#include <stdlib.h>
 #include "list.h"
-
-
+        
 typedef struct {
-
+	int value;
+	list_t *blocked_queue;
 } tasem_t;
 
 typedef struct {
-
+	tasem_t *lock;
 } talock_t;
 
 typedef struct {

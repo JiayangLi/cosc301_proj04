@@ -18,6 +18,7 @@
 static list_t *ready_queue;
 static ucontext_t *main_context;
 static ucontext_t *current_context;
+static int if_any_blocked = 0;  //indicates if there is any blocked threads
 
 /* ***************************** 
      stage 1 library functions
@@ -34,6 +35,8 @@ void ta_libinit(void) {
     assert(main_context);
 
     current_context = main_context;
+
+    if_any_blocked = 0;
 }
  
 void ta_create(void (*func)(void *), void *arg) {
@@ -59,7 +62,6 @@ void ta_create(void (*func)(void *), void *arg) {
 
 void ta_yield(void) {
     //if there is no thread left, let this last thread run to completion
-    //printf("queue size: %d\n", list_size(ready_queue));
     if (list_size(ready_queue) > 0){
         ucontext_t *to_run = list_remove(ready_queue);
         list_add(ready_queue, current_context);
@@ -69,8 +71,6 @@ void ta_yield(void) {
             exit(EXIT_FAILURE);
         }
     }
-
-
 }
 
 int ta_waitall(void) {
@@ -85,9 +85,10 @@ int ta_waitall(void) {
         free((current_context->uc_stack).ss_sp);
         free(current_context);
     }
-    free(ready_queue);
+
+    list_clear(ready_queue);
     free(main_context);
-    return 0;
+    return if_any_blocked;
 }
 
 
@@ -96,27 +97,59 @@ int ta_waitall(void) {
    ***************************** */
 
 void ta_sem_init(tasem_t *sem, int value) {
+    sem->value = value;
+    sem->blocked_queue = (list_t *) malloc(sizeof(list_t));
 }
 
 void ta_sem_destroy(tasem_t *sem) {
+    list_clear(sem->blocked_queue);
 }
 
 void ta_sem_post(tasem_t *sem) {
+    sem->value++;
+
+    //put a blocked thread (if any) to the ready queue
+    if (list_size(sem->blocked_queue) > 0){
+        ucontext_t *to_ready = list_remove(sem->blocked_queue);
+        list_add(ready_queue, to_ready);
+    }
 }
 
 void ta_sem_wait(tasem_t *sem) {
+    //block until the value > 0
+
+    while (sem->value <= 0){
+        if (list_size(ready_queue) <= 0){   //no more ready thread, switch back to main
+            //list_add(sem->blocked_queue, current_context);
+            if_any_blocked = -1;    //no more running threads, but still blocked threads
+            swapcontext(current_context, main_context);
+        } else {    //switch to the next ready thread
+            ucontext_t *to_run = list_remove(ready_queue);
+            list_add(sem->blocked_queue, current_context);
+            current_context = to_run;
+            swapcontext(((sem->blocked_queue)->tail)->ctx, to_run);
+        }
+    }
+
+    sem->value--;
 }
 
 void ta_lock_init(talock_t *mutex) {
+    mutex->lock = (tasem_t *) malloc(sizeof(tasem_t));
+    ta_sem_init(mutex->lock, 1);
 }
 
 void ta_lock_destroy(talock_t *mutex) {
+    ta_sem_destroy(mutex->lock);
+    free(mutex->lock);
 }
 
 void ta_lock(talock_t *mutex) {
+    ta_sem_wait(mutex->lock);
 }
 
 void ta_unlock(talock_t *mutex) {
+    ta_sem_post(mutex->lock);
 }
 
 
